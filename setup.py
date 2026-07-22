@@ -1,4 +1,5 @@
 from glob import glob
+
 from setuptools import find_packages, setup
 
 
@@ -30,6 +31,7 @@ setup(
         "console_scripts": [
             "cmd_vel_to_joy = jackal_nav2.cmd_vel_to_joy:main",
             "goto_nav2 = jackal_nav2.goto_nav2:main",
+            "semantic_terrain = jackal_nav2.semantic_terrain_node:main",
         ],
     },
 )

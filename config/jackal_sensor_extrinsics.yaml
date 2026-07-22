@@ -1,0 +1,11 @@
+# Provisional base_link -> zed_camera_link transform.
+# Replace these values with a measured calibration before semantic projection is
+# allowed to influence navigation, then set calibrated to true.
+zed:
+  x: 0.25
+  y: 0.0
+  z: 0.50
+  roll: 0.0
+  pitch: 0.0
+  yaw: 0.0
+  calibrated: false

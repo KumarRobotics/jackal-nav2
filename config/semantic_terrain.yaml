@@ -1,0 +1,61 @@
+semantic_terrain:
+  ros__parameters:
+    # Existing local SAM3 checkpoint. Override with a custom parameter file on
+    # another machine; the node validates this path before loading the model.
+    model_path: "/home/dcist/data/weights/sam3.pt"
+    device: "cuda:0"
+    image_size: 640
+    model_confidence: 0.25
+    half_precision: true
+    score_threshold: 0.50
+
+    # These three arrays are startup-static and index-aligned. Several prompts
+    # may map to one stable class ID/name published through LabelInfo.
+    prompts:
+      - "paved road"
+      - "compact gravel"
+      - "firm dirt"
+      - "short grass"
+      - "loose gravel"
+      - "tall vegetation"
+      - "mud"
+      - "deep sand"
+      - "curb"
+      - "water"
+      - "ditch"
+      - "drop-off"
+    prompt_class_ids: [1, 1, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4]
+    prompt_class_names:
+      - "preferred_surface"
+      - "preferred_surface"
+      - "preferred_surface"
+      - "caution_surface"
+      - "caution_surface"
+      - "high_risk_surface"
+      - "high_risk_surface"
+      - "high_risk_surface"
+      - "high_risk_surface"
+      - "water_or_dropoff"
+      - "water_or_dropoff"
+      - "water_or_dropoff"
+
+    # ZED registered depth must be pixel-aligned with the left rectified color.
+    rgb_topic: "zed/zed_node/left/image_rect_color"
+    depth_topic: "zed/zed_node/depth/depth_registered"
+    camera_info_topic: "zed/zed_node/depth/camera_info"
+    sync_queue_size: 10
+    sync_slop_seconds: 0.05
+    integer_depth_scale: 0.001
+    min_depth_m: 0.5
+    max_depth_m: 8.0
+
+    # SAM sees the source image at the configured inference size. Costmap-facing
+    # products are sampled together at this lower organized resolution.
+    output_width: 320
+    output_height: 180
+    max_inference_rate_hz: 0.0  # 0 means run as fast as the hardware permits.
+
+    start_enabled: true
+    publish_overlay: false
+    overlay_alpha: 0.5
+    publish_diagnostics: true

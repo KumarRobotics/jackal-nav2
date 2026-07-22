@@ -2,13 +2,45 @@
 
 """Launch GroundGrid, static transforms, Nav2, and the Jackal command bridge."""
 
+from jackal_nav2.sensor_extrinsics import zed_extrinsics_are_calibrated
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
+from nav2_common.launch import RewrittenYaml
+
+
+def validate_semantic_extrinsics(context):
+    semantic_navigation = IfCondition(
+        LaunchConfiguration("semantic_navigation")
+    ).evaluate(context)
+    start_nav2 = IfCondition(
+        LaunchConfiguration("start_nav2")
+    ).evaluate(context)
+    require_calibration = IfCondition(
+        LaunchConfiguration("require_calibrated_extrinsics")
+    ).evaluate(context)
+    if not (semantic_navigation and start_nav2 and require_calibration):
+        return []
+
+    extrinsics_file = LaunchConfiguration("zed_extrinsics_file").perform(context)
+    if not zed_extrinsics_are_calibrated(extrinsics_file):
+        raise RuntimeError(
+            "Semantic navigation requires calibrated ZED extrinsics. "
+            f"Update {extrinsics_file} and set zed.calibrated to true, or "
+            "set require_calibrated_extrinsics:=false only for stationary/offline "
+            "testing where robot motion is independently disabled."
+        )
+    return []
 
 
 def generate_launch_description():
@@ -23,6 +55,27 @@ def generate_launch_description():
     base_frame = LaunchConfiguration("base_frame")
     lidar_frame = LaunchConfiguration("lidar_frame")
     smoothed_cmd_vel_topic = LaunchConfiguration("smoothed_cmd_vel_topic")
+    semantic_terrain_params = ParameterFile(
+        RewrittenYaml(
+            source_file=LaunchConfiguration("semantic_terrain_params_file"),
+            root_key=namespace,
+            param_rewrites={},
+            convert_types=True,
+        ),
+        allow_substs=True,
+    )
+    semantic_terrain = Node(
+        package="jackal_nav2",
+        executable="semantic_terrain",
+        name="semantic_terrain",
+        namespace=namespace,
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("semantic_navigation")),
+        parameters=[
+            semantic_terrain_params,
+            {"use_sim_time": use_sim_time},
+        ],
+    )
 
     static_transforms = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -34,13 +87,18 @@ def generate_launch_description():
                 ]
             )
         ),
-        condition=IfCondition(LaunchConfiguration("publish_map_to_odom")),
         launch_arguments={
             "map_frame": map_frame,
+            "publish_map_to_odom": LaunchConfiguration(
+                "publish_map_to_odom"
+            ),
             "odom_frame": odom_frame,
             "base_frame": base_frame,
             "robot_map_frame": LaunchConfiguration("robot_map_frame"),
             "zed_frame": LaunchConfiguration("zed_frame"),
+            "zed_extrinsics_file": LaunchConfiguration(
+                "zed_extrinsics_file"
+            ),
             "initial_x": LaunchConfiguration("initial_x"),
             "initial_y": LaunchConfiguration("initial_y"),
             "initial_z": LaunchConfiguration("initial_z"),
@@ -90,6 +148,13 @@ def generate_launch_description():
             "namespace": namespace,
             "use_sim_time": use_sim_time,
             "params_file": params_file,
+            "semantic_navigation": LaunchConfiguration("semantic_navigation"),
+            "semantic_params_file": LaunchConfiguration(
+                "semantic_params_file"
+            ),
+            "semantic_nav_to_pose_bt_xml": LaunchConfiguration(
+                "semantic_nav_to_pose_bt_xml"
+            ),
             "autostart": LaunchConfiguration("autostart"),
             "use_composition": LaunchConfiguration("use_composition"),
             "container_name": LaunchConfiguration("nav2_container_name"),
@@ -138,10 +203,45 @@ def generate_launch_description():
             "nav2_jackal_stvox_mppi_tuning.yaml",
         ]
     )
+    default_semantic_params = PathJoinSubstitution(
+        [
+            FindPackageShare("jackal_nav2"),
+            "config",
+            "nav2_semantic_terrain_overlay.yaml",
+        ]
+    )
+    default_semantic_terrain_params = PathJoinSubstitution(
+        [
+            FindPackageShare("jackal_nav2"),
+            "config",
+            "semantic_terrain.yaml",
+        ]
+    )
+    default_semantic_bt = PathJoinSubstitution(
+        [
+            FindPackageShare("nav2_bt_navigator"),
+            "behavior_trees",
+            "navigate_to_pose_w_replanning_and_recovery.xml",
+        ]
+    )
     arguments = [
         DeclareLaunchArgument("namespace", default_value=""),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("params_file", default_value=default_params),
+        DeclareLaunchArgument("semantic_navigation", default_value="false"),
+        DeclareLaunchArgument(
+            "semantic_params_file",
+            default_value=default_semantic_params,
+        ),
+        DeclareLaunchArgument(
+            "semantic_terrain_params_file",
+            default_value=default_semantic_terrain_params,
+        ),
+        DeclareLaunchArgument(
+            "semantic_nav_to_pose_bt_xml",
+            default_value=default_semantic_bt,
+        ),
+        DeclareLaunchArgument("require_calibrated_extrinsics", default_value="true"),
         DeclareLaunchArgument("autostart", default_value="true"),
         DeclareLaunchArgument("use_composition", default_value="false"),
         DeclareLaunchArgument("nav2_container_name", default_value="nav2_container"),
@@ -171,6 +271,16 @@ def generate_launch_description():
         DeclareLaunchArgument("base_frame", default_value="base_link"),
         DeclareLaunchArgument("lidar_frame", default_value="os_lidar"),
         DeclareLaunchArgument("zed_frame", default_value="zed_camera_link"),
+        DeclareLaunchArgument(
+            "zed_extrinsics_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("jackal_nav2"),
+                    "config",
+                    "jackal_sensor_extrinsics.yaml",
+                ]
+            ),
+        ),
         DeclareLaunchArgument("robot_map_frame", default_value=""),
         DeclareLaunchArgument("initial_x", default_value="0.0"),
         DeclareLaunchArgument("initial_y", default_value="0.0"),
@@ -180,5 +290,13 @@ def generate_launch_description():
     ]
 
     return LaunchDescription(
-        [*arguments, groundgrid, static_transforms, nav2, joy_bridge]
+        [
+            *arguments,
+            OpaqueFunction(function=validate_semantic_extrinsics),
+            groundgrid,
+            static_transforms,
+            semantic_terrain,
+            nav2,
+            joy_bridge,
+        ]
     )

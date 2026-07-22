@@ -3,7 +3,12 @@
 """Launch the tested subset of Nav2 navigation servers."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, SetEnvironmentVariable
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    OpaqueFunction,
+    SetEnvironmentVariable,
+)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import LoadComposableNodes, Node, SetParameter
@@ -12,11 +17,26 @@ from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import ReplaceString, RewrittenYaml
 
 
-def generate_launch_description():
+def configured_parameter_file(source_file, replacements, namespace, autostart):
+    replaced_params = ReplaceString(
+        source_file=source_file,
+        replacements=replacements,
+    )
+    return ParameterFile(
+        RewrittenYaml(
+            source_file=replaced_params,
+            root_key=namespace,
+            param_rewrites={"autostart": autostart},
+            convert_types=True,
+        ),
+        allow_substs=True,
+    )
+
+
+def build_nav2_servers(context):
     namespace = LaunchConfiguration("namespace")
     use_sim_time = LaunchConfiguration("use_sim_time")
     autostart = LaunchConfiguration("autostart")
-    params_file = LaunchConfiguration("params_file")
     use_composition = LaunchConfiguration("use_composition")
     container_name = LaunchConfiguration("container_name")
     use_respawn = LaunchConfiguration("use_respawn")
@@ -34,9 +54,9 @@ def generate_launch_description():
         "waypoint_follower",
     ]
 
-    replaced_params = ReplaceString(
-        source_file=params_file,
-        replacements={
+    base_params = configured_parameter_file(
+        LaunchConfiguration("params_file"),
+        {
             "__ODOM_TOPIC__": LaunchConfiguration("odom_topic"),
             "__OBSTACLE_TOPIC__": LaunchConfiguration("obstacle_topic"),
             "__POINTCLOUD_TOPIC__": LaunchConfiguration("pointcloud_topic"),
@@ -48,16 +68,26 @@ def generate_launch_description():
             "__LIDAR_FRAME__": LaunchConfiguration("lidar_frame"),
             "__NAV_TO_POSE_BT_XML__": LaunchConfiguration("nav_to_pose_bt_xml"),
         },
+        namespace,
+        autostart,
     )
-    configured_params = ParameterFile(
-        RewrittenYaml(
-            source_file=replaced_params,
-            root_key=namespace,
-            param_rewrites={"autostart": autostart},
-            convert_types=True,
-        ),
-        allow_substs=True,
-    )
+    parameter_files = [base_params]
+
+    semantic_navigation = IfCondition(
+        LaunchConfiguration("semantic_navigation")
+    ).evaluate(context)
+    if semantic_navigation:
+        semantic_params = configured_parameter_file(
+            LaunchConfiguration("semantic_params_file"),
+            {
+                "__NAV_TO_POSE_BT_XML__": LaunchConfiguration(
+                    "semantic_nav_to_pose_bt_xml"
+                ),
+            },
+            namespace,
+            autostart,
+        )
+        parameter_files.append(semantic_params)
 
     controller_remappings = [
         ("cmd_vel", nav_cmd_vel_topic),
@@ -73,7 +103,7 @@ def generate_launch_description():
         "output": "screen",
         "respawn": use_respawn,
         "respawn_delay": 2.0,
-        "parameters": [configured_params],
+        "parameters": parameter_files,
         "arguments": node_arguments,
     }
 
@@ -143,7 +173,7 @@ def generate_launch_description():
 
     component_options = {
         "namespace": namespace,
-        "parameters": [configured_params],
+        "parameters": parameter_files,
     }
     load_composable_nodes = GroupAction(
         condition=IfCondition(use_composition),
@@ -215,11 +245,22 @@ def generate_launch_description():
         ],
     )
 
+    return [load_nodes, load_composable_nodes]
+
+
+def generate_launch_description():
     default_params = PathJoinSubstitution(
         [
             FindPackageShare("jackal_nav2"),
             "config",
             "nav2_jackal_stvox_mppi_tuning.yaml",
+        ]
+    )
+    default_semantic_params = PathJoinSubstitution(
+        [
+            FindPackageShare("jackal_nav2"),
+            "config",
+            "nav2_semantic_terrain_overlay.yaml",
         ]
     )
     default_bt = PathJoinSubstitution(
@@ -229,11 +270,27 @@ def generate_launch_description():
             "navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml",
         ]
     )
+    default_semantic_bt = PathJoinSubstitution(
+        [
+            FindPackageShare("nav2_bt_navigator"),
+            "behavior_trees",
+            "navigate_to_pose_w_replanning_and_recovery.xml",
+        ]
+    )
 
     arguments = [
         DeclareLaunchArgument("namespace", default_value=""),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("params_file", default_value=default_params),
+        DeclareLaunchArgument("semantic_navigation", default_value="false"),
+        DeclareLaunchArgument(
+            "semantic_params_file",
+            default_value=default_semantic_params,
+        ),
+        DeclareLaunchArgument(
+            "semantic_nav_to_pose_bt_xml",
+            default_value=default_semantic_bt,
+        ),
         DeclareLaunchArgument("autostart", default_value="true"),
         DeclareLaunchArgument("use_composition", default_value="false"),
         DeclareLaunchArgument("container_name", default_value="nav2_container"),
@@ -260,7 +317,6 @@ def generate_launch_description():
         [
             SetEnvironmentVariable("RCUTILS_LOGGING_BUFFERED_STREAM", "1"),
             *arguments,
-            load_nodes,
-            load_composable_nodes,
+            OpaqueFunction(function=build_nav2_servers),
         ]
     )
