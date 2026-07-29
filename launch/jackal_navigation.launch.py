@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Launch GroundGrid, static transforms, Nav2, and the Jackal command bridge."""
+"""Launch GroundGrid, static transforms, Nav2, and Jackal support nodes."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -131,6 +131,32 @@ def generate_launch_description():
         ],
     )
 
+    motion_analysis = Node(
+        package="jackal_nav2",
+        executable="motion_stats",
+        name="motion_stats",
+        namespace=namespace,
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("start_motion_analysis")),
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "nav_cmd_vel_topic": LaunchConfiguration("nav_cmd_vel_topic"),
+                "smoothed_cmd_vel_topic": smoothed_cmd_vel_topic,
+                "odom_topic": odom_topic,
+                "output_directory": LaunchConfiguration(
+                    "motion_analysis_output_directory"
+                ),
+                "report_interval": LaunchConfiguration(
+                    "motion_analysis_report_interval"
+                ),
+                "acceleration_filter_alpha": LaunchConfiguration(
+                    "motion_analysis_acceleration_filter_alpha"
+                ),
+            }
+        ],
+    )
+
     default_params = PathJoinSubstitution(
         [
             FindPackageShare("jackal_nav2"),
@@ -150,6 +176,16 @@ def generate_launch_description():
         DeclareLaunchArgument("start_groundgrid", default_value="true"),
         DeclareLaunchArgument("start_nav2", default_value="true"),
         DeclareLaunchArgument("start_joy_bridge", default_value="true"),
+        DeclareLaunchArgument("start_motion_analysis", default_value="false"),
+        DeclareLaunchArgument(
+            "motion_analysis_output_directory", default_value=""
+        ),
+        DeclareLaunchArgument(
+            "motion_analysis_report_interval", default_value="30.0"
+        ),
+        DeclareLaunchArgument(
+            "motion_analysis_acceleration_filter_alpha", default_value="0.25"
+        ),
         DeclareLaunchArgument("publish_map_to_odom", default_value="true"),
         DeclareLaunchArgument("pointcloud_topic", default_value="/ouster/points"),
         DeclareLaunchArgument("odom_topic", default_value="dlio/odom_node/odom"),
@@ -180,5 +216,12 @@ def generate_launch_description():
     ]
 
     return LaunchDescription(
-        [*arguments, groundgrid, static_transforms, nav2, joy_bridge]
+        [
+            *arguments,
+            groundgrid,
+            static_transforms,
+            nav2,
+            joy_bridge,
+            motion_analysis,
+        ]
     )

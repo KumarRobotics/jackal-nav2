@@ -7,3 +7,5 @@ install/
 log/
 *.egg-info/
 .idea/
+rviz/
+plots/

@@ -17,7 +17,7 @@ setup(
         ("share/" + package_name + "/rviz", glob("rviz/*.rviz")),
         ("share/" + package_name + "/docs", glob("docs/*.md")),
     ],
-    install_requires=["setuptools", "PyYAML"],
+    install_requires=["setuptools", "PyYAML", "matplotlib"],
     zip_safe=True,
     maintainer="Ankit Prabhu",
     maintainer_email="pra.ankiict@gmail.com",
@@ -30,6 +30,7 @@ setup(
         "console_scripts": [
             "cmd_vel_to_joy = jackal_nav2.cmd_vel_to_joy:main",
             "goto_nav2 = jackal_nav2.goto_nav2:main",
+            "motion_stats = jackal_nav2.motion_stats:main",
         ],
     },
 )
