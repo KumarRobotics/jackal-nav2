@@ -89,6 +89,7 @@ controller_server:
       # while measured angular velocity is still zero. The velocity smoother
       # remains the physical 1.5 rad/s^2 acceleration limit sent to the robot.
       az_max: 6.0
+      az_min: -6.0
       vx_std: 0.2
       vy_std: 0.2
       # Broaden angular samples so MPPI evaluates useful turning trajectories.
@@ -99,7 +100,7 @@ controller_server:
       vx_min: -0.5
       vy_max: 0.5
       # 0.6 rad/s was verified to overcome stationary turning resistance.
-      wz_max: 0.6
+      wz_max: 0.75 #0.6
       iteration_count: 1
       # Prediction horizon = 56 * 0.05 = 2.8 s, or 2.8 m at vx_max.
       prune_distance: 3.5
@@ -157,7 +158,7 @@ controller_server:
         consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
-        trajectory_point_step: 1 #2
+        trajectory_point_step: 1 # Try step 2 for reduced CPU load
       PathAlignCritic:
         enabled: true
         cost_power: 1
@@ -170,8 +171,8 @@ controller_server:
       PathFollowCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
-        offset_from_furthest: 5
+        cost_weight: 5.0 # Increase this to make MPPI follow the path more closely, 
+        offset_from_furthest: 5 # Try move offsets 
         threshold_to_consider: 1.4
       PathAngleCritic:
         enabled: true
@@ -200,7 +201,7 @@ local_costmap:
       rolling_window: true
       width: 20
       height: 20
-      resolution: 0.25
+      resolution: 0.15 #0.25 # Try 0.2 or 0.15 for small obstacle misses and if compute is not a concern
       # footprint: "[ [0.15, 0.15], [0.15, -0.15], [-0.15, -0.15], [-0.15, 0.15] ]"
       footprint: "[ [0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25] ]"
       # footprint: "[ [0.55, 0.45], [0.55, -0.45], [-0.55, -0.45], [-0.55, 0.45] ]"
@@ -215,14 +216,15 @@ local_costmap:
       voxel_layer:
         plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
         enabled: true
-        voxel_size: 0.25
-        publish_voxel_map: true
+        voxel_size: 0.15
+        publish_voxel_map: false
+        # TODO: Probably don't need origin, max and min height here. Check before removing.
         origin_z: -5.0
         max_obstacle_height: 20.0
         min_obstacle_height: -15.0
         mark_threshold: 1
         # Rapidly expire transient/self observations in the controller costmap.
-        voxel_decay: 1.0
+        voxel_decay: 3.0
         decay_model: 0
         update_footprint_enabled: true
         combination_method: 1
@@ -246,7 +248,7 @@ local_costmap:
           voxel_min_points: 2
         pointcloud_clear:
           # Use the full scan for free-space clearing; the filtered cloud may be empty.
-          topic: __OBSTACLE_TOPIC__
+          topic: __POINTCLOUD_TOPIC__ 
           sensor_frame: __LIDAR_FRAME__
           data_type: "PointCloud2"
           marking: false
@@ -256,7 +258,7 @@ local_costmap:
           vertical_fov_angle: 0.75
           vertical_fov_padding: 0.1
           horizontal_fov_angle: 6.283
-          decay_acceleration: 5.0
+          decay_acceleration: 1.0
           model_type: 1
           observation_persistence: 0.0
           expected_update_rate: 0.0
@@ -287,7 +289,7 @@ global_costmap:
       voxel_layer:
         plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
         enabled: true
-        publish_voxel_map: true
+        publish_voxel_map: false
         voxel_size: 0.25
         origin_z: -5.0
         max_obstacle_height: 20.0
@@ -308,7 +310,7 @@ global_costmap:
           clearing: false
           min_obstacle_height: -15.0
           max_obstacle_height: 20.0
-          obstacle_range: 50.0
+          obstacle_range: 25.0 # Try 20 to 30 meters instead
           observation_persistence: 0.0
           expected_update_rate: 0.0
           clear_after_reading: true
@@ -316,17 +318,17 @@ global_costmap:
           voxel_min_points: 2
         pointcloud_clear:
           # Use the full scan for free-space clearing; the filtered cloud may be empty.
-          topic: __OBSTACLE_TOPIC__
+          topic: __POINTCLOUD_TOPIC__ 
           sensor_frame: __LIDAR_FRAME__
           data_type: "PointCloud2"
           marking: false
           clearing: true
           min_z: 0.3
-          max_z: 50.0
+          max_z: 25.0 # same as above try 20 to 30 meters instead
           vertical_fov_angle: 0.75
           vertical_fov_padding: 0.1
           horizontal_fov_angle: 6.283
-          decay_acceleration: 5.0
+          decay_acceleration: 0.5 # reduce to 1.0 for slower decay and 0.5 for global map
           model_type: 1
           observation_persistence: 0.0
           expected_update_rate: 0.0
@@ -435,20 +437,20 @@ velocity_smoother:
     # Interpolate the controller's 20 Hz output into a smoother 50 Hz hardware command.
     smoothing_frequency: 50.0
     # Avoid a tiny angular correction proportionally suppressing forward ramp-up.
-    scale_velocities: False
+    scale_velocities: false
     feedback: "OPEN_LOOP"
     # These bounds must agree with the MPPI model above. The speed_limit topic
     # can impose a lower temporary cap; these remain the absolute safety caps.
-    max_velocity: [1.0, 0.0, 0.6]
+    max_velocity: [1.0, 0.0, 0.75]
     # Allow bounded reverse commands from MPPI and Nav2 backup recoveries.
-    min_velocity: [-0.5, 0.0, -0.6]
+    min_velocity: [-0.5, 0.0, -0.75]
     # TODO: Need to tune these to make sure the Jackal can decelerate fast enough to avoid collisions.
-    max_accel: [0.3, 0.0, 1.5]
-    max_decel: [-0.3, 0.0, -1.5]
+    max_accel: [0.25, 0.0, 6.0]
+    max_decel: [-1.0, 0.0, -6.0]
     odom_topic: __ODOM_TOPIC__
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
-    velocity_timeout: 1.0
+    velocity_timeout: 0.25 #1.0
 
 
 # Calibration for the physical Joy-to-platform velocity mapping. Measure the

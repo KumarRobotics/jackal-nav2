@@ -184,7 +184,7 @@ def generate_launch_description():
             "motion_analysis_report_interval", default_value="30.0"
         ),
         DeclareLaunchArgument(
-            "motion_analysis_acceleration_filter_alpha", default_value="0.25"
+            "motion_analysis_acceleration_filter_alpha", default_value="0.12"
         ),
         DeclareLaunchArgument("publish_map_to_odom", default_value="true"),
         DeclareLaunchArgument("pointcloud_topic", default_value="/ouster/points"),

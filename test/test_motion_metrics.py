@@ -68,8 +68,8 @@ def test_robust_jerk_plot_limit_ignores_rare_spikes():
     [
         ("odometry", "linear_acceleration", False),
         ("odometry", "angular_acceleration", False),
-        ("odometry", "linear_velocity", True),
-        ("odometry", "angular_velocity", True),
+        ("odometry", "linear_velocity", False),
+        ("odometry", "angular_velocity", False),
         ("odometry", "linear_jerk", False),
         ("odometry", "angular_jerk", False),
         ("nav_command", "linear_acceleration", True),
@@ -78,7 +78,7 @@ def test_robust_jerk_plot_limit_ignores_rare_spikes():
         ("smoothed_command", "angular_jerk", True),
     ],
 )
-def test_should_plot_series_excludes_odometry_derivatives(
+def test_should_plot_series_excludes_odometry_from_motion_profiles(
     source, field, expected
 ):
     assert should_plot_series(source, field) is expected

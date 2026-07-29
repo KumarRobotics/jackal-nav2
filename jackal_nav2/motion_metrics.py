@@ -13,11 +13,10 @@ from typing import Iterable
 
 ACCELERATION_PLOT_MIN = -1.0
 ACCELERATION_PLOT_MAX = 2.0
-JERK_PLOT_PERCENTILE = 94.0
+JERK_PLOT_PERCENTILE = 92.0
 JERK_PLOT_MIN_ABS_LIMIT = 1.0e-6
 ACCELERATION_FIELDS = {"linear_acceleration", "angular_acceleration"}
 JERK_FIELDS = {"linear_jerk", "angular_jerk"}
-COMMAND_ONLY_FIELDS = ACCELERATION_FIELDS | JERK_FIELDS
 
 
 @dataclass
@@ -273,10 +272,10 @@ def jerk_value_for_plot(value: float, limit: float) -> float:
     return value if abs(value) <= limit else math.nan
 
 
-def should_plot_series(source: str, field: str) -> bool:
-    """Exclude noisy odometry from acceleration and jerk panels."""
+def should_plot_series(source: str, _field: str) -> bool:
+    """Exclude noisy odometry from all motion-profile panels."""
 
-    return not (source == "odometry" and field in COMMAND_ONLY_FIELDS)
+    return source != "odometry"
 
 
 class MotionReport:
