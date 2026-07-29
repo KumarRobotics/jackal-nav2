@@ -151,12 +151,12 @@ def generate_launch_description():
         DeclareLaunchArgument("start_nav2", default_value="true"),
         DeclareLaunchArgument("start_joy_bridge", default_value="true"),
         DeclareLaunchArgument("publish_map_to_odom", default_value="true"),
-        DeclareLaunchArgument("pointcloud_topic", default_value="ouster/points"),
+        DeclareLaunchArgument("pointcloud_topic", default_value="/ouster/points"),
         DeclareLaunchArgument("odom_topic", default_value="dlio/odom_node/odom"),
         DeclareLaunchArgument(
-            "obstacle_topic", default_value="groundgrid/obstacle_cloud"
+            "obstacle_topic", default_value="/groundgrid/obstacle_cloud"
         ),
-        DeclareLaunchArgument("nav_cmd_vel_topic", default_value="platform/cmd_vel"),
+        DeclareLaunchArgument("nav_cmd_vel_topic", default_value="cmd_vel_nav"),
         DeclareLaunchArgument(
             "smoothed_cmd_vel_topic", default_value="cmd_vel_smoothed"
         ),

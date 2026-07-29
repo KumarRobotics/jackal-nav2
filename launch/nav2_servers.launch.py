@@ -239,15 +239,15 @@ def generate_launch_description():
         DeclareLaunchArgument("container_name", default_value="nav2_container"),
         DeclareLaunchArgument("use_respawn", default_value="false"),
         DeclareLaunchArgument("log_level", default_value="info"),
-        DeclareLaunchArgument("nav_cmd_vel_topic", default_value="platform/cmd_vel"),
+        DeclareLaunchArgument("nav_cmd_vel_topic", default_value="cmd_vel_nav"),
         DeclareLaunchArgument(
             "smoothed_cmd_vel_topic", default_value="cmd_vel_smoothed"
         ),
         DeclareLaunchArgument("odom_topic", default_value="dlio/odom_node/odom"),
         DeclareLaunchArgument(
-            "obstacle_topic", default_value="groundgrid/obstacle_cloud"
+            "obstacle_topic", default_value="/groundgrid/obstacle_cloud"
         ),
-        DeclareLaunchArgument("pointcloud_topic", default_value="ouster/points"),
+        DeclareLaunchArgument("pointcloud_topic", default_value="/ouster/points"),
         DeclareLaunchArgument("speed_limit_topic", default_value="speed_limit"),
         DeclareLaunchArgument("map_frame", default_value="map"),
         DeclareLaunchArgument("odom_frame", default_value="odom"),

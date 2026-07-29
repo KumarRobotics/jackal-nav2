@@ -1,6 +1,6 @@
 # Jackal Nav2 / MPPI Debugging Context
 
-Last updated: 2026-07-14
+Last updated: 2026-07-28
 
 ## Purpose
 
@@ -34,11 +34,18 @@ limits and bridge calibration, not arbitrary multipliers applied after Nav2.
 - The direct-MPPI goal-yaw fix is **applied and tested; unsuccessful as a complete
   solution**. The Jackal still drove forward arcs while trying to turn, repeatedly
   aborted MPPI, and depended on recovery spins before goal completion.
-- The remaining motion-quality issue is a mild straight-line jerk/pulse resembling
-  gentle start/stop behavior. It is distinct from the aggressive, direction-specific
-  return-leg oscillation fixed by the DLIO twist-frame correction. Its source has
-  not yet been isolated between Nav2/TF scheduling, the Joy bridge, multiple base
-  command publishers, and the separate `jackal-serial` controller/serial cadence.
+- ~~The remaining motion-quality issue is a mild straight-line jerk/pulse resembling
+  gentle start/stop behavior.~~ **Resolved in the 2026-07-28 physical test.** The
+  separate `/platform/cmd_vel` publisher collision caused the severe multi-second
+  start/stop behavior, and restoring private `/cmd_vel_nav` command flow removed it.
+  Reducing the velocity smoother's linear acceleration/deceleration limits from
+  `0.75 / -1.0` to `0.5 / -0.5 m/s²` then removed the remaining super-jerky motion.
+  The observed motion-quality problem is closed; the gentler braking envelope still
+  requires safety and goal-overshoot validation before being treated as production-final.
+- The missing local/global obstacle maps are **resolved in a stationary live-sensor
+  test**. Fully qualified STVL topics restored obstacle marking and raw-scan clearing;
+  moving obstacle-avoidance behavior still requires a controlled field test.
+
 - Explicit inspection-yaw behavior in `jackal_autonomy_server.py` remains deliberately
   deferred.
 - A direction-specific odometry defect was found in DLIO: the message declares
@@ -159,13 +166,21 @@ immediately into behavior-tree recovery instead of publishing patience-window ze
 - Maximum velocities: `[1.0, 0.0, 0.6]`.
 - Minimum velocities: `[-0.5, 0.0, -0.6]`; reverse MPPI and backup-recovery commands
   can now pass through the smoother.
-- Maximum accelerations: `[0.75, 0.0, 1.5]`.
-- Maximum decelerations: `[-1.0, 0.0, -1.5]`.
+- Maximum accelerations: `[0.5, 0.0, 1.5]`.
+- Maximum decelerations: `[-0.5, 0.0, -1.5]`.
 - Odometry topic: `/dlio/odom_node/odom`.
 
-The smoother X minimum is now zero as an explicit forward-only safety bound. Its
-previous negative value merely permitted negative input; the smoother did not
-originate the MPPI optimizer failure.
+At the 50 Hz smoother rate, these linear limits constrain each output update to
+approximately `+0.01 m/s` while accelerating and `-0.01 m/s` while decelerating.
+That rate limiting is a direct and plausible explanation for the robot-tested removal
+of abrupt motion. The X minimum remains `-0.5 m/s` so bounded reverse commands can
+pass through.
+
+The smoother's `0.5 / -0.5 m/s²` physical output limits remain more conservative
+than MPPI's `ax_max: 2.0` and `ax_min: -1.0 m/s²` rollout model. A constant
+`0.5 m/s²` deceleration implies an ideal 2-second, 1-meter stop from 1.0 m/s.
+Preserve the successful jerk tuning, validate that braking envelope around real
+obstacles, and then decide whether MPPI's rollout constraints should be aligned.
 
 ### Costmaps
 
@@ -174,12 +189,10 @@ originate the MPPI optimizer failure.
   the controller-critical observation path. Its previous 10-second transform
   tolerance was reduced to 0.3 seconds.
 - Local and global inflation radii remain 0.5 m.
-- Both STVL instances now use separate `pointcloud_mark` and `pointcloud_clear`
-  sources. Marking uses the filtered GroundGrid obstacle cloud; clearing uses the
-  full `/ouster/points` scan and is explicitly configured as 3-D lidar
-  (`model_type: 1`) with
-  a 6.283 rad horizontal FOV and 0.75 rad vertical FOV from the checked-in Ouster
-  metadata. Footprint clearing is explicit.
+- Both STVL instances mark from the absolute `/groundgrid/obstacle_cloud` topic and
+  clear free space from the absolute raw `/ouster/points` topic. The corrected live
+  graph shows one marking subscription from each costmap and no private namespaced
+  ghost topics. Footprint clearing remains explicit.
 - The local voxel decay is now 1.0 second to remove transient/self observations
   quickly; the global layer remains 5.0 seconds.
 - Global costmap width and height remain 100 m. At 0.25 m resolution it is about
@@ -237,6 +250,8 @@ the preceding goal quaternion, determines whether the shim performs an initial t
 
 ### Straight-line jerk/pulsing
 
+Status: **Resolved in the 2026-07-28 physical test; retained as history.**
+
 - During the 10 m straight, the wheels periodically appeared to stop after a short
   acceleration and start again. Motor sound also suggested periodic loading.
 - The inspected Nav2 command topics were identical and did not show corresponding
@@ -249,6 +264,13 @@ the preceding goal quaternion, determines whether the shim performs an initial t
   is **applied but unverified**: the next serial-container session must confirm the
   running parameter, measured `/joint_states` rate, and callback-driven serial-write
   cadence are actually near 50 Hz.
+- Later testing separated two symptoms. The severe multi-second stop/start motion was
+  caused by Nav2 and Clearpath teleop both writing the post-mux `/platform/cmd_vel`
+  topic; restoring `/cmd_vel_nav` as Nav2's private pre-smoother topic fixed that
+  command collision. With command ownership corrected, lowering the smoother's linear
+  acceleration/deceleration limits to `0.5 / -0.5 m/s²` removed the remaining
+  super-jerky motion. The prior serial-rate and TF hypotheses were reasonable from
+  the evidence then available, but are no longer required to explain this symptom.
 
 ### First rotation-shim test: TF and missed-loop failures
 
@@ -470,6 +492,63 @@ Status: **Applied and tested; successful and intentionally retained**.
   that 1.0 m provides the desired outdoor acceptance behavior with the current MPPI
   tracking and is a deliberate mission requirement, not a hidden yaw workaround.
 
+### 2026-07-28 command isolation and velocity-smoother ramp tuning — applied and tested
+
+Status: **Applied and robot-tested; the observed stop/start and super-jerky motion are
+resolved. The braking envelope remains to be validated before production use.**
+
+- Changed the normal standalone launch's raw Nav2 topic from the Clearpath post-mux
+  `/platform/cmd_vel` output to private `/cmd_vel_nav`. This stopped continuous
+  `teleop_twist_joy` zeros from entering the velocity smoother and eliminated the
+  severe multi-second start/stop behavior.
+- Reduced the smoother's linear acceleration/deceleration limits from
+  `0.75 / -1.0` to `0.5 / -0.5 m/s²`. At 50 Hz this reduces the largest per-cycle
+  linear changes from approximately `+0.015 / -0.020 m/s` to
+  `+0.010 / -0.010 m/s`.
+- The subsequent physical test no longer exhibited the remaining super-jerky motion.
+  This outcome is mechanically consistent with the velocity smoother's purpose as a
+  slew-rate limiter, so the motion-quality symptom is considered resolved.
+- The user subsequently restored both MPPI and smoother maximum X velocity to
+  1.0 m/s and selected symmetric `0.5 / -0.5 m/s²` linear slew limits. Attribution
+  of the smoother motion improvement still relies on the user’s reported test sequence.
+- The current MPPI rollout limits remain `ax_max: 2.0` and `ax_min: -1.0 m/s²`, which
+  do not model the downstream `0.5 / -0.5 m/s²` slew limits. Validate controlled
+  stops, goal approaches, reverse transitions, and obstacle avoidance before calling
+  these exact values production-final.
+
+### 2026-07-28 missing-costmap regression — applied and stationary-tested
+
+Status: **Applied and tested with live stationary sensor data; moving obstacle
+avoidance remains to be field-tested.**
+
+- GroundGrid correctly published `/groundgrid/obstacle_cloud`, and RViz displayed
+  that absolute topic, but STVL 2.5.5 resolved the relative configured source under
+  each private costmap namespace. The resulting
+  `/local_costmap/groundgrid/obstacle_cloud` and
+  `/global_costmap/groundgrid/obstacle_cloud` topics each had two subscribers and
+  zero publishers. `expected_update_rate: 0.0` explains why startup stayed quiet.
+- Before the fix, one GroundGrid cloud contained 20,617 points, while both published
+  STVL voxel grids contained zero points. The 80 x 80 local costmap had `{0: 6400}`
+  only; the 400 x 400 global map had `{-1: 159984, 0: 16}`. The 16 global free cells
+  were only the footprint-cleared area.
+- Both launch entry points now default marking to absolute
+  `/groundgrid/obstacle_cloud` and raw clearing to absolute `/ouster/points`. Both
+  YAML clearing sources were restored to `__POINTCLOUD_TOPIC__`. The repository RViz
+  voxel displays now use the real `voxel_grid` topics.
+- After restarting the stack, the live graph showed two STVL subscribers on the real
+  GroundGrid topic and one local plus one global clearing subscriber on raw Ouster.
+  The private ghost topics disappeared. With a 19,367-point GroundGrid cloud, local
+  and global STVL published 1,621 and 1,983 voxels. The local map contained 568
+  lethal cells plus 1,182 inflated cells; the global map contained 700 lethal cells
+  plus 860 inflated cells.
+- `voxel_min_points: 2` is retained because the repaired path produces dense obstacle
+  markings. The supplied startup log had one 8.104 ms future-TF extrapolation drop;
+  it is a secondary timing concern, not the cause of continuous empty costmaps.
+- Build and overlay checks found source/build/install files identical through the
+  symlink install, matching GroundGrid binaries, and successful latest builds. This
+  was a topic-resolution configuration regression, not a stale build or semantic-
+  branch artifact.
+
 ## What is fixed
 
 1. Arbitrary post-Nav2 scalar velocity multiplication was removed from the bridge.
@@ -489,25 +568,40 @@ Status: **Applied and tested; successful and intentionally retained**.
    in-place turn without reported random rotations during straight tracking.
 9. Position-only goal completion at the intentionally selected 1.0 m outdoor XY
    tolerance completed four consecutive shuttle legs in the latest test.
+10. Private `/cmd_vel_nav` command ownership removes the external teleop-zero race
+    from the velocity smoother and fixed the severe multi-second start/stop behavior.
+11. The robot-tested `0.5 / -0.5 m/s²` smoother limits eliminated the remaining
+    super-jerky straight-line motion.
+12. Absolute STVL marking and clearing topics restored non-empty local/global voxel
+    layers and lethal/inflated costmap cells in the stationary live-sensor test.
 
 ## What remains unresolved
 
-1. Isolate the mild straight-line jerk/pulsing by recording every command stage and
-   wheel feedback with synchronized timestamps. Do not assume it is MPPI tuning.
-2. Test the plausible but unconfirmed hypothesis that another publisher in the
-   `jackal-serial` container intermittently sends zero linear velocity alongside the
-   autonomous command. ROS 2 does not arbitrate multiple publishers on one topic.
-3. Verify that the user's already-applied 50 Hz serial-container controller-manager
-   change is in the deployed configuration, is loaded at runtime, and produces near-
-   50 Hz `/joint_states` and serial drive writes. Its effect is not yet measured.
-4. Correlate the two observed 9 Hz Nav2 controller cycles and TF extrapolation errors
-   with physical jerks; they are a second live hypothesis independent of serial rate.
-5. Confirm bounded reverse works when genuinely needed in a tight space.
-6. Replace the square footprint with measured Jackal geometry before treating tight-
+1. ~~Isolate the mild straight-line jerk/pulsing by recording every command stage and
+   wheel feedback with synchronized timestamps.~~ **Resolved by the 2026-07-28
+   velocity-smoother tuning test.**
+2. ~~Test whether another publisher sends zero velocity alongside Nav2.~~ **Confirmed
+   at `/platform/cmd_vel` and fixed for the normal standalone launch by restoring the
+   private `/cmd_vel_nav` pre-smoother topic.**
+3. Validate whether `-0.5 m/s²` provides an acceptable stopping distance at every
+   allowed speed, especially with the current 1.0 m/s maximum.
+4. Align MPPI's `ax_max / ax_min` rollout constraints with the accepted physical
+   smoother envelope so predicted and achievable braking behavior agree.
+5. ~~Change the inner `nav2_servers.launch.py` default from `platform/cmd_vel` to
+   `cmd_vel_nav`.~~ **Resolved on 2026-07-28; both launch entry points now default
+   to the private pre-smoother command topic.**
+6. Verify the already-applied 50 Hz serial-container controller-manager setting when
+   low-level cadence is next inspected. It is no longer required to explain the
+   resolved jerk symptom, but remains useful end-to-end platform validation.
+7. Treat the two historical 9 Hz controller cycles and TF extrapolation errors as a
+   timing follow-up only if they recur; they are no longer needed to explain the jerk.
+8. Confirm bounded reverse works when genuinely needed in a tight space.
+9. Replace the square footprint with measured Jackal geometry before treating tight-
    space rotational collision checks as authoritative.
-7. Explicit inspection-yaw handling in `jackal_autonomy_server.py` remains deferred.
-8. Joy calibration and selectable speed profiles remain follow-up work after command
-   continuity is proven.
+10. Explicit inspection-yaw handling in `jackal_autonomy_server.py` remains deferred.
+11. Joy calibration and selectable speed profiles remain follow-up work.
+12. Run a controlled physical obstacle-avoidance test with the repaired costmaps; the
+    stationary test proves perception fusion but not the complete moving behavior.
 
 ## Why the odometry correction fixed the former oscillation
 
@@ -533,10 +627,14 @@ position-only semantics rather than a large yaw tolerance pretending to ignore y
 inspection-yaw behavior will later require a separately selected pose-goal mode; per
 user direction, `jackal_autonomy_server.py` is not changed in this implementation.
 
-## Cross-container straight-line jerk handoff
+## Historical cross-container straight-line jerk handoff (superseded)
 
-The next debugging chat should run from the deployed `KumarRobotics/jackal-serial`
-checkout/container and use this file as its primer. Inspect that checkout's branch,
+Status: **Superseded by the 2026-07-28 robot-tested fixes.** Retain this section as
+historical diagnostic guidance if similar pulsing ever recurs; it is no longer the
+active next task.
+
+The earlier proposed debugging chat would have run from the deployed
+`KumarRobotics/jackal-serial` checkout/container and inspected that checkout's branch,
 commit, configuration, launch remappings, and local diff before changing anything.
 The verified upstream facts below refer to `main` commit
 `b75e3f9044da2181b6f281105e5a48c62f625ea9`; the robot may run a fork or older image.
@@ -546,13 +644,13 @@ The verified upstream facts below refer to `main` commit
 - The old failure was aggressive start/stop motion specifically on the return leg.
   It was caused by DLIO publishing world-frame linear velocity while labeling it
   `base_link`; that correction is built and robot-verified. Preserve it.
-- The current symptom is much milder jerk/pulsing while traveling down a straight.
-  It resembles small start/stop events, but the direction dependence, repetition
-  frequency, exact command owner, and wheel-response timing have not been measured.
-- The latest 1.0 m-tolerance shuttle still completed four consecutive legs. The same
-  log contains two future-TF lookup failures followed by controller-loop rates of
-  9.3765 and 9.0111 Hz instead of 20 Hz. Therefore both the Nav2/TF timing path and
-  the downstream serial path must remain under investigation.
+- ~~The current symptom is much milder jerk/pulsing while traveling down a straight.~~
+  **Resolved in the 2026-07-28 physical test by gentler velocity-smoother linear
+  acceleration/deceleration limits after command-topic isolation.**
+- The older 1.0 m-tolerance shuttle log contained two future-TF lookup failures and
+  controller-loop rates of 9.3765 and 9.0111 Hz instead of 20 Hz. These remain useful
+  historical timing evidence, but they are no longer required to explain the resolved
+  jerk symptom.
 
 ### Verified upstream behavior and deployed 50 Hz change
 
@@ -687,8 +785,8 @@ Use a clear outdoor area or safely support the wheels for cadence-only tests.
 - Sets controller failure tolerance to zero to avoid patience-window stop/go pulses.
 - Uses an odom-frame rolling local costmap with a 0.3-second transform tolerance.
 - Makes local/global footprints identical.
-- Replaces combined default-camera STVL observations with filtered GroundGrid
-  marking and full-scan 360-degree Ouster clearing sources.
+- Marks STVL obstacles from `/groundgrid/obstacle_cloud` and performs frustum
+  clearing from the full raw `/ouster/points` scan; both topic defaults are absolute.
 - Explicitly clears the footprint and uses a 1-second local voxel decay.
 - Replaces failing NavFn with cost-aware SmacPlanner2D and its path smoother.
 - Selects the official recovery BT that replans only for a new or invalid path,
@@ -696,6 +794,20 @@ Use a clear outdoor area or safely support the wheels for cadence-only tests.
 - Uses non-stateful `PositionGoalChecker` with the tested 1.0 m outdoor XY tolerance.
 - Removes GoalAngleCritic and keeps only the angular VelocityDeadbandCritic penalty.
 - Configures PathAngleCritic mode 1 while retaining PreferForwardCritic.
+- Sets MPPI and smoother maximum X velocity to 1.0 m/s.
+- Uses robot-tested velocity-smoother linear acceleration/deceleration limits of
+  `0.5 / -0.5 m/s²`, which resolved the observed super-jerky motion but still require
+  braking-distance validation and MPPI rollout-limit alignment.
+
+### `jackal_navigation.launch.py`
+
+- Changes the normal standalone raw Nav2 command topic from the Clearpath post-mux
+  `/platform/cmd_vel` output to private `/cmd_vel_nav`, eliminating the confirmed
+  teleop-zero collision at the velocity-smoother input.
+- Defaults STVL marking and raw clearing topics to fully qualified root topics so
+  costmap-private namespaces cannot silently redirect the subscriptions.
+- The nested `nav2_servers.launch.py` default now also uses `cmd_vel_nav`, so direct
+  launches do not recreate the post-mux feedback collision.
 
 ### GroundGrid `src/GroundGridNode.cpp`
 
