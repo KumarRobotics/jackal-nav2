@@ -1,6 +1,6 @@
 # Jackal Nav2 / MPPI Debugging Context
 
-Last updated: 2026-07-28
+Last updated: 2026-08-04
 
 ## Purpose
 
@@ -40,11 +40,28 @@ limits and bridge calibration, not arbitrary multipliers applied after Nav2.
   start/stop behavior, and restoring private `/cmd_vel_nav` command flow removed it.
   Reducing the velocity smoother's linear acceleration/deceleration limits from
   `0.75 / -1.0` to `0.5 / -0.5 m/s²` then removed the remaining super-jerky motion.
-  The observed motion-quality problem is closed; the gentler braking envelope still
-  requires safety and goal-overshoot validation before being treated as production-final.
+  That July motion-quality problem is closed. The current smoother values have since
+  changed to `0.3 / -1.0 m/s²` and require their own safety, stopping-distance, and
+  goal-overshoot validation before being treated as production-final.
 - The missing local/global obstacle maps are **resolved in a stationary live-sensor
   test**. Fully qualified STVL topics restored obstacle marking and raw-scan clearing;
   moving obstacle-avoidance behavior still requires a controlled field test.
+- The standalone-image waypoint regression is **resolved in a robot test**. The old
+  image contains Nav2 1.3.7 and the new image contains Nav2 1.3.12. An upstream MPPI
+  acceleration-constraint change made the asymmetric rollout limits reverse-biased,
+  causing 9-12 seconds of start/stop indecision and sometimes full-leg reverse travel.
+- The successful Nav2 1.3.12 workaround uses symmetric MPPI rollout acceleration
+  limits of `6.0 / -6.0 m/s²`, `vx_min: 0.0`, and `PathAngleCritic.mode: 0`.
+  Controller-selected reverse is intentionally disabled; explicit behavior-tree
+  `BackUp` remains available through the velocity smoother. This is separate from
+  the 2026-07-28 command-topic collision and physical-smoother jerk regression.
+- The slow ZED/Ouster/DLIO launch is **resolved and robot-verified**. With
+  `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, Fast DDS discovered another robot using
+  the same ROS domain and spent tens of seconds processing the foreign graph while
+  ZED created its publishers. Setting the range to `LOCALHOST` in
+  `autonomy_ws/bashrc` restored normal sensor startup. This deliberately prevents
+  discovery of off-machine ROS nodes; use a unique domain ID instead if distributed
+  robot/base-station communication is required.
 
 - Explicit inspection-yaw behavior in `jackal_autonomy_server.py` remains deliberately
   deferred.
@@ -137,10 +154,10 @@ launch file. Always re-read the file before relying on this summary.
 
 - Time steps: 56 at 0.05 s, for a 2.8 s prediction horizon.
 - Batch size: 2000.
-- `open_loop: false`.
-- Linear velocity limits: `vx_min: -0.5`, `vx_max: 1.0 m/s`.
-- Angular velocity maximum: 0.6 rad/s.
-- Linear acceleration maximum/minimum: 2.0 / -1.0 m/s² (unchanged).
+- `open_loop: true`.
+- Linear velocity limits: `vx_min: 0.0`, `vx_max: 1.0 m/s`.
+- Angular velocity maximum: 0.75 rad/s.
+- Linear rollout acceleration maximum/minimum: `6.0 / -6.0 m/s²`.
 - MPPI angular rollout acceleration: 6.0 rad/s², allowing candidates to reach the
   proven breakaway velocity while odometry still reads zero.
 - Angular sampling standard deviation: 0.4 rad/s.
@@ -148,39 +165,40 @@ launch file. Always re-read the file before relying on this summary.
 - Motion model: differential drive.
 - MPPI retry attempt limit: 1.
 - `GoalAngleCritic` is removed because ordinary goal yaw is not a task requirement.
-- `PathAngleCritic` keeps weight 8.0 and uses mode 1, evaluating the closer forward
-  or reverse direction instead of forcing forward alignment.
+- `PathAngleCritic` keeps weight 8.0 and uses mode 0, enforcing forward path
+  alignment for ordinary MPPI tracking.
 - A `VelocityDeadbandCritic` remains enabled with deadbands `[0.0, 0.0, 0.04]`
   and weight 35. Only angular breakaway is encouraged; zero linear velocity is no
   longer penalized during a stationary turn.
 
-`vx_min: -0.5` restores bounded reverse trajectories. `PreferForwardCritic` remains
-enabled, so reverse is available for tight-space maneuvering without becoming the
-default. Controller `failure_tolerance` remains 0.0 so all-trajectories-collide exits
-immediately into behavior-tree recovery instead of publishing patience-window zeros.
+`vx_min: 0.0` and `PathAngleCritic.mode: 0` deliberately prevent MPPI from selecting
+reverse trajectories in Nav2 1.3.12. `PreferForwardCritic` remains as a soft forward
+preference, while the hard velocity bound and path-angle mode remove the ambiguous
+reverse solution. Controller `failure_tolerance` remains 0.0 so all-trajectories-
+collide exits immediately into behavior-tree recovery instead of publishing patience-
+window zeros. Explicit behavior-tree `BackUp` commands can still pass through the
+velocity smoother's negative X bound.
 
 ### Velocity smoother
 
 - Frequency: 50 Hz.
 - Feedback mode: open loop.
-- Maximum velocities: `[1.0, 0.0, 0.6]`.
-- Minimum velocities: `[-0.5, 0.0, -0.6]`; reverse MPPI and backup-recovery commands
-  can now pass through the smoother.
-- Maximum accelerations: `[0.5, 0.0, 1.5]`.
-- Maximum decelerations: `[-0.5, 0.0, -1.5]`.
+- Maximum velocities: `[1.0, 0.0, 0.75]`.
+- Minimum velocities: `[-0.5, 0.0, -0.75]`; explicit backup-recovery commands can
+  pass through even though ordinary MPPI reverse is disabled by `vx_min: 0.0`.
+- Maximum accelerations: `[0.3, 0.0, 1.5]`.
+- Maximum decelerations: `[-1.0, 0.0, -1.5]`.
 - Odometry topic: `/dlio/odom_node/odom`.
 
 At the 50 Hz smoother rate, these linear limits constrain each output update to
-approximately `+0.01 m/s` while accelerating and `-0.01 m/s` while decelerating.
-That rate limiting is a direct and plausible explanation for the robot-tested removal
-of abrupt motion. The X minimum remains `-0.5 m/s` so bounded reverse commands can
-pass through.
+approximately `+0.006 m/s` while accelerating and `-0.020 m/s` while decelerating.
+These are the physical output slew limits; the MPPI `6.0 / -6.0 m/s²` values only
+bound optimizer rollouts and are the confirmed Nav2 1.3.12 workaround.
 
-The smoother's `0.5 / -0.5 m/s²` physical output limits remain more conservative
-than MPPI's `ax_max: 2.0` and `ax_min: -1.0 m/s²` rollout model. A constant
-`0.5 m/s²` deceleration implies an ideal 2-second, 1-meter stop from 1.0 m/s.
-Preserve the successful jerk tuning, validate that braking envelope around real
-obstacles, and then decide whether MPPI's rollout constraints should be aligned.
+The optimizer and smoother acceleration envelopes intentionally do not currently
+match. Preserve the robot-tested MPPI workaround, validate stopping and obstacle
+avoidance with the physical `0.3 / -1.0 m/s²` smoother limits, and then test whether
+a smaller symmetric MPPI pair or a corrected Nav2 release retains the good behavior.
 
 ### Costmaps
 
@@ -238,6 +256,43 @@ mode this is explicitly an ignored placeholder. Each new path's geometry, rather
 the preceding goal quaternion, determines whether the shim performs an initial turn.
 
 ## Experiment history
+
+### 2026-08-04 slow sensor launch — applied and tested
+
+Status: **Applied and tested; confirmed fix on the robot**.
+
+- Symptom: ZED, Ouster, and DLIO took much longer to launch in the standalone image.
+  ZED was the most visible delay and was still creating/activating publishers after
+  Ouster and DLIO had begun running.
+- Controlled image tests showed that the physical sensor initialization was not the
+  cause. ZED camera opening remained approximately 2.9 seconds in both the old and
+  new images, and Ouster initialization remained approximately 12.6-14 seconds.
+- Fast DDS with `ROS_DOMAIN_ID=2` and subnet discovery produced repeated roughly
+  3.07-second pauses while ZED declared parameters, services, and image publishers.
+  The same image started normally on an isolated domain, and a Cyclone DDS A/B test
+  also started normally on domain 2. Restricting ZED to raw image transport reduced
+  publisher count but did not remove the pauses, so image transports amplified the
+  problem rather than caused it.
+- The decisive field observation was that topics and nodes remained visible with no
+  local stack running. Another robot on the subnet was using the same domain ID.
+  Fast DDS therefore discovered and processed that robot's graph during local sensor
+  startup.
+- `autonomy_ws/bashrc` now sets:
+
+  ```bash
+  export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+  ```
+
+  Sensor startup returned to normal after this change, confirming foreign subnet
+  discovery as the operational root cause.
+- `LOCALHOST` is appropriate while every required ROS process runs on this computer,
+  including processes in host-networked containers. It intentionally hides ROS nodes
+  on other machines. If a base station or another computer must communicate with the
+  robot, assign this robot a unique `ROS_DOMAIN_ID` and configure the intended peers
+  to use it before restoring `SUBNET` discovery or defining explicit static peers.
+- The sensor launch file required no permanent change. Its actions remain concurrent,
+  so DLIO can still log activity before ZED finishes, but the pathological delay is
+  removed.
 
 ### Initial behavior: commands too small
 
@@ -549,6 +604,66 @@ avoidance remains to be field-tested.**
   was a topic-resolution configuration regression, not a stale build or semantic-
   branch artifact.
 
+### 2026-08-04 Nav2 1.3.12 MPPI start/reverse regression — applied and tested
+
+Status: **Applied and robot-tested; successful.**
+
+- The same `perch_waypoints.yaml` shuttle and the same pre-fix Nav2 configuration
+  behaved normally in `kumarrobotics/spine-nvda:nav2_test_restored` but hesitated for
+  approximately 9-12 seconds at some waypoint starts in
+  `kumarrobotics/jackal_autonomy:jazzy-20260730-r4`. The new image also sometimes
+  drove an entire return leg in reverse before the rotation shim turned it for the
+  next forward leg.
+- The supplied pre-fix logs are `data/logs/ros2_spine_docker_navigation.log` for the
+  old image and `data/logs/ros2_autonomy_docker_nav2.log` for the new image. The new
+  image's first `(0,0) -> (10,0)` leg took 23.48 seconds from navigation start to
+  success versus 15.20 seconds in the old image, an 8.28-second excess consistent
+  with the observed initial hesitation. Completed legs did not log a BT spin,
+  backup, or recovery transition, so the reverse leg was an MPPI trajectory choice,
+  not `SmacRotation`, `BackUp`, or another recovery behavior.
+- Package inspection found coherent Nav2 installations rather than a mixed-library
+  or overlay problem: the old container has Nav2 1.3.7 and the standalone container
+  has Nav2 1.3.12, both loaded from `/opt/ros/jazzy`. The checked-out Jackal Nav2
+  source, launch, BT XML, and pre-fix parameter file were identical between the two
+  containers. The Dockerfile's mutable `latest` base and unversioned apt installs
+  allowed the Nav2 patch release to change even though the application parameters did
+  not.
+- Nav2 PR [#5260](https://github.com/ros-navigation/navigation2/pull/5260), backported
+  as commit
+  [`b47bcfa5`](https://github.com/ros-navigation/navigation2/commit/b47bcfa5e633e4c06b7def8a615e16cfdbec397c),
+  changed MPPI's bidirectional acceleration constraints between these releases. With
+  `model_dt: 0.05`, pre-fix `ax_max: 2.5`, `ax_min: -1.0`, and zero initial velocity,
+  the feasible first-step X-velocity interval changed from approximately
+  `[-0.05, +0.125] m/s` to `[-0.125, +0.05] m/s`. The same nominal limits therefore
+  became reverse-biased. The later upstream discussion in Nav2 PR
+  [#6248](https://github.com/ros-navigation/navigation2/pull/6248) independently
+  reports asymmetric limits producing oscillation or failure to start.
+- The pre-fix combination of `vx_min: -0.5`, `PathAngleCritic.mode: 1`, and the soft
+  `PreferForwardCritic` allowed either travel direction. Once the acceleration window
+  favored negative velocity, MPPI could alternate around zero at startup or settle on
+  a locally valid reverse trajectory for the whole leg. The rotation shim was not the
+  cause; it only acted later when a sufficiently large initial heading error existed.
+- The successful configuration change was:
+
+  ```yaml
+  ax_max: 6.0
+  ax_min: -6.0
+  vx_min: 0.0
+  PathAngleCritic:
+    mode: 0
+  ```
+
+- The symmetric rollout bounds remove the sign-dependent magnitude bias. The hard
+  nonnegative X bound and forward-only path-angle mode prevent ordinary MPPI tracking
+  from selecting a full reverse leg. The user repeated the robot mission and confirmed
+  that the reported start/stop delay and unintended full-leg reverse behavior were
+  gone.
+- `6.0 / -6.0 m/s²` is an optimizer-rollout compatibility workaround, not permission
+  for that physical acceleration. The downstream velocity smoother still enforces
+  `0.3 / -1.0 m/s²`. Before production freeze, validate stopping and obstacle
+  avoidance, test a smaller symmetric rollout pair if desired, and pin the base image
+  and Nav2 package versions so a rebuild cannot silently change controller semantics.
+
 ## What is fixed
 
 1. Arbitrary post-Nav2 scalar velocity multiplication was removed from the bridge.
@@ -574,6 +689,12 @@ avoidance remains to be field-tested.**
     super-jerky straight-line motion.
 12. Absolute STVL marking and clearing topics restored non-empty local/global voxel
     layers and lethal/inflated costmap cells in the stationary live-sensor test.
+13. The Nav2 1.3.12 MPPI startup hesitation and unintended full-leg reverse behavior
+    are robot-verified fixed with symmetric `6.0 / -6.0 m/s²` rollout bounds,
+    `vx_min: 0.0`, and `PathAngleCritic.mode: 0`.
+14. Slow sensor-stack startup is fixed by restricting automatic ROS discovery to
+    `LOCALHOST`. Subnet discovery had found another robot using the same domain ID,
+    causing Fast DDS graph interference during ZED publisher creation.
 
 ## What remains unresolved
 
@@ -583,10 +704,12 @@ avoidance remains to be field-tested.**
 2. ~~Test whether another publisher sends zero velocity alongside Nav2.~~ **Confirmed
    at `/platform/cmd_vel` and fixed for the normal standalone launch by restoring the
    private `/cmd_vel_nav` pre-smoother topic.**
-3. Validate whether `-0.5 m/s²` provides an acceptable stopping distance at every
-   allowed speed, especially with the current 1.0 m/s maximum.
-4. Align MPPI's `ax_max / ax_min` rollout constraints with the accepted physical
-   smoother envelope so predicted and achievable braking behavior agree.
+3. Validate whether the current smoother's `-1.0 m/s²` deceleration provides an
+   acceptable stopping distance at every allowed speed, especially at 1.0 m/s.
+4. The robot-tested Nav2 1.3.12 workaround uses MPPI `ax_max / ax_min` of
+   `6.0 / -6.0 m/s²`, while the physical smoother uses `0.3 / -1.0 m/s²`. Validate
+   stopping and obstacle avoidance, then determine whether a smaller symmetric MPPI
+   pair or a corrected/pinned Nav2 release can retain the fix with a closer model.
 5. ~~Change the inner `nav2_servers.launch.py` default from `platform/cmd_vel` to
    `cmd_vel_nav`.~~ **Resolved on 2026-07-28; both launch entry points now default
    to the private pre-smoother command topic.**
@@ -595,7 +718,10 @@ avoidance remains to be field-tested.**
    resolved jerk symptom, but remains useful end-to-end platform validation.
 7. Treat the two historical 9 Hz controller cycles and TF extrapolation errors as a
    timing follow-up only if they recur; they are no longer needed to explain the jerk.
-8. Confirm bounded reverse works when genuinely needed in a tight space.
+8. MPPI reverse is intentionally disabled in the current Nav2 1.3.12 workaround.
+   If controller-selected reverse is required later, reintroduce it only after testing
+   a corrected Nav2 version or constraints that do not recreate the startup bias.
+   Explicit behavior-tree `BackUp` remains available through the smoother.
 9. Replace the square footprint with measured Jackal geometry before treating tight-
    space rotational collision checks as authoritative.
 10. Explicit inspection-yaw handling in `jackal_autonomy_server.py` remains deferred.
@@ -779,9 +905,10 @@ Use a clear outdoor area or safely support the wheels for cadence-only tests.
 
 - Active experiment wraps MPPI with a one-shot initial-heading rotation shim.
 - Retains the robot-tested shim turn at 0.6 rad/s with open-loop acceleration ramping,
-  plus MPPI's 0.6 rad/s maximum, 0.4 rad/s sampling deviation, and 6.0 rad/s² rollout
+  plus MPPI's 0.75 rad/s maximum, 0.4 rad/s sampling deviation, and 6.0 rad/s² rollout
   acceleration.
-- Sets MPPI and smoother minimum X velocity to -0.5 m/s for bounded reverse.
+- Sets MPPI minimum X velocity to 0.0 m/s to prohibit controller-selected
+  reverse; the smoother retains -0.5 m/s so explicit `BackUp` commands can pass.
 - Sets controller failure tolerance to zero to avoid patience-window stop/go pulses.
 - Uses an odom-frame rolling local costmap with a 0.3-second transform tolerance.
 - Makes local/global footprints identical.
@@ -793,11 +920,13 @@ Use a clear outdoor area or safely support the wheels for cadence-only tests.
   eliminating unconditional 1 Hz path replacement.
 - Uses non-stateful `PositionGoalChecker` with the tested 1.0 m outdoor XY tolerance.
 - Removes GoalAngleCritic and keeps only the angular VelocityDeadbandCritic penalty.
-- Configures PathAngleCritic mode 1 while retaining PreferForwardCritic.
+- Configures PathAngleCritic mode 0 for forward path alignment while retaining
+  PreferForwardCritic.
 - Sets MPPI and smoother maximum X velocity to 1.0 m/s.
-- Uses robot-tested velocity-smoother linear acceleration/deceleration limits of
-  `0.5 / -0.5 m/s²`, which resolved the observed super-jerky motion but still require
-  braking-distance validation and MPPI rollout-limit alignment.
+- Uses symmetric MPPI rollout acceleration/deceleration limits of `6.0 / -6.0 m/s²`
+  as the robot-tested Nav2 1.3.12 compatibility workaround.
+- The current velocity-smoother physical linear acceleration/deceleration limits are
+  `0.3 / -1.0 m/s²`; these still require braking-distance and obstacle validation.
 
 ### `jackal_navigation.launch.py`
 

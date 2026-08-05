@@ -82,8 +82,10 @@ controller_server:
       # 0.08 m/s downstream teleop dead zone (2.0 * 0.05 = 0.10 m/s).
       # The velocity smoother below still enforces the physical 0.5 m/s^2 ramp.
       open_loop: true
-      ax_max: 2.5
-      ax_min: -1.0
+      # With the new Nav2 1.3.12 version on the standalone container, ax_max must be symmetric with ax_min to avoid jerks
+      # The new version prefers reverse motions to forward motions
+      ax_max: 6.0
+      ax_min: -6.0 
       ay_max: 3.0
       # Let MPPI's rollouts reach the proven 0.6 rad/s breakaway command even
       # while measured angular velocity is still zero. The velocity smoother
@@ -97,7 +99,7 @@ controller_server:
       vx_max: 1.0
       # Reverse remains bounded and available for tight-space maneuvers. The
       # forward critic still makes forward travel preferable when both are valid.
-      vx_min: -0.5
+      vx_min: 0.0 #-0.5 # TODO: 1.3.12 version specific. Test if reserve can still be given to MPPI
       vy_max: 0.5
       # 0.6 rad/s was verified to overcome stationary turning resistance.
       wz_max: 0.75 #0.6
@@ -183,7 +185,7 @@ controller_server:
         offset_from_furthest: 4
         threshold_to_consider: 0.5
         max_angle_to_furthest: 1.0
-        mode: 1
+        mode: 0 # TODO: 1.3.12 version specific. Test if 0 is still valid for the new version which prefers forward motions.
 
 
 local_costmap:
