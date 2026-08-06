@@ -9,4 +9,4 @@ log/
 .idea/
 rviz/*.rviz
 plots/
-192.168.100-metadata.json
+docs/*
