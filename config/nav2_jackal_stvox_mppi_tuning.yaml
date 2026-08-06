@@ -446,8 +446,7 @@ velocity_smoother:
     max_velocity: [1.0, 0.0, 0.75]
     # Allow bounded reverse commands from MPPI and Nav2 backup recoveries.
     min_velocity: [-0.5, 0.0, -0.75]
-    # TODO: Need to tune these to make sure the Jackal can decelerate fast enough to avoid collisions.
-    max_accel: [0.3, 0.0, 1.5]
+    max_accel: [1.0, 0.0, 1.5]
     max_decel: [-1.0, 0.0, -1.5]
     odom_topic: __ODOM_TOPIC__
     odom_duration: 0.1
