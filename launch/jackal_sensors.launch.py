@@ -16,6 +16,7 @@ def generate_launch_description():
     start_dlio = LaunchConfiguration("start_dlio")
     pointcloud_topic = LaunchConfiguration("pointcloud_topic")
     imu_topic = LaunchConfiguration("imu_topic")
+    dlio_wait_until_move = LaunchConfiguration("dlio_wait_until_move")
     ouster_container_name = LaunchConfiguration("ouster_container_name")
     camera_model = LaunchConfiguration("camera_model")
 
@@ -75,6 +76,7 @@ def generate_launch_description():
             "pointcloud_topic": pointcloud_topic,
             "imu_topic": imu_topic,
             "container_name": ouster_container_name,
+            "wait_until_move": dlio_wait_until_move,
         }.items(),
     )
 
@@ -93,6 +95,14 @@ def generate_launch_description():
                 "pointcloud_topic", default_value="ouster/points"
             ),
             DeclareLaunchArgument("imu_topic", default_value="ouster/imu"),
+            DeclareLaunchArgument(
+                "dlio_wait_until_move",
+                default_value="false",
+                description=(
+                    "Delay DLIO deskewed-cloud publication until motion. Keep "
+                    "false for fail-closed consumers that require a map before motion."
+                ),
+            ),
             DeclareLaunchArgument(
                 "ouster_container_name",
                 default_value="/ouster/os_container",
