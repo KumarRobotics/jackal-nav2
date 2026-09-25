@@ -205,13 +205,14 @@ local_costmap:
       height: 20
       resolution: 0.15 #0.25 # Try 0.2 or 0.15 for small obstacle misses and if compute is not a concern
       # footprint: "[ [0.15, 0.15], [0.15, -0.15], [-0.15, -0.15], [-0.15, 0.15] ]"
-      footprint: "[ [0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25] ]"
+      robot_radius: 0.30
+      footprint_padding: 0.0
       # footprint: "[ [0.55, 0.45], [0.55, -0.45], [-0.55, -0.45], [-0.55, 0.45] ]"
       always_send_full_costmap: true
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Keep this larger than the 0.368 m circumscribed footprint radius so
+        # Keep this larger than the 0.30 m circular footprint radius so
         # MPPI can use the inflation field for efficient footprint checking.
         cost_scaling_factor: 5.0
         inflation_radius: 0.5
@@ -277,7 +278,8 @@ global_costmap:
       robot_base_frame: __BASE_FRAME__
       # Match the local collision footprint so the global planner does not
       # create paths that MPPI rejects for the larger local footprint.
-      footprint: "[ [0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25] ]"
+      robot_radius: 0.30
+      footprint_padding: 0.0
       rolling_window: True
       resolution: 0.25
 
