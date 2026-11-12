@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration, PythonExpression, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def static_transform(parent, child, x, y, z, yaw, condition=None):
@@ -67,9 +69,11 @@ def generate_launch_description():
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument(
                 "publish_zed_static_tf",
-                default_value="true",
-                description="Publish the existing identity base-to-ZED transform",
+                default_value="false",
+                description="Publish the configured ZED mount only if the sensor launch is not already publishing it",
             ),
+            DeclareLaunchArgument('zed_mount_config',default_value=PathJoinSubstitution(
+                [FindPackageShare('jackal_nav2'),'config','zed_mount.yaml'])),
             static_transform(
                 map_frame,
                 odom_frame,
@@ -97,14 +101,13 @@ def generate_launch_description():
                 "0",
                 use_robot_map_frame,
             ),
-            static_transform(
-                base_frame,
-                zed_frame,
-                "0",
-                "0",
-                "0",
-                "0",
-                IfCondition(LaunchConfiguration("publish_zed_static_tf")),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(PathJoinSubstitution(
+                    [FindPackageShare('jackal_nav2'),'launch','zed_mount.launch.py'])),
+                condition=IfCondition(LaunchConfiguration('publish_zed_static_tf')),
+                launch_arguments={'zed_mount_config':LaunchConfiguration('zed_mount_config'),
+                    'child_frame':zed_frame,
+                    'use_sim_time':LaunchConfiguration('use_sim_time')}.items(),
             ),
         ]
     )

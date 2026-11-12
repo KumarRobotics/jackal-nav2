@@ -49,6 +49,7 @@ def generate_launch_description():
                 "publish_zed_static_tf"
             ),
             "use_sim_time": use_sim_time,
+            'zed_mount_config':LaunchConfiguration('zed_mount_config'),
         }.items(),
     )
 
@@ -212,7 +213,9 @@ def generate_launch_description():
         DeclareLaunchArgument("initial_y", default_value="0.0"),
         DeclareLaunchArgument("initial_z", default_value="0.0"),
         DeclareLaunchArgument("initial_yaw", default_value="0.0"),
-        DeclareLaunchArgument("publish_zed_static_tf", default_value="true"),
+        DeclareLaunchArgument("publish_zed_static_tf", default_value="false"),
+        DeclareLaunchArgument('zed_mount_config',default_value=PathJoinSubstitution(
+            [FindPackageShare('jackal_nav2'),'config','zed_mount.yaml'])),
     ]
 
     return LaunchDescription(

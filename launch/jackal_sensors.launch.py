@@ -4,7 +4,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -59,6 +59,15 @@ def generate_launch_description():
         }.items(),
     )
 
+    zed_mount = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution(
+            [FindPackageShare('jackal_nav2'),'launch','zed_mount.launch.py'])),
+        condition=IfCondition(PythonExpression(["'",start_zed,"' == 'true' and '",
+            LaunchConfiguration('publish_zed_mount_tf'),"' == 'true'"])),
+        launch_arguments={'zed_mount_config':LaunchConfiguration('zed_mount_config'),
+                          'use_sim_time':use_sim_time}.items(),
+    )
+
     dlio = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -90,6 +99,10 @@ def generate_launch_description():
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument("start_ouster", default_value="true"),
             DeclareLaunchArgument("start_zed", default_value="true"),
+            DeclareLaunchArgument('publish_zed_mount_tf',default_value='true',
+                description='Publish the base-to-ZED mounting edge when ZED is enabled; disable if another publisher owns it'),
+            DeclareLaunchArgument('zed_mount_config',default_value=PathJoinSubstitution(
+                [FindPackageShare('jackal_nav2'),'config','zed_mount.yaml'])),
             DeclareLaunchArgument("start_dlio", default_value="true"),
             DeclareLaunchArgument(
                 "pointcloud_topic", default_value="ouster/points"
@@ -114,6 +127,7 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_model", default_value="zed2i"),
             ouster,
             zed,
+            zed_mount,
             dlio,
         ]
     )

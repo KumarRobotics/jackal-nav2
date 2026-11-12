@@ -1,0 +1,20 @@
+# Default: preserve the retained LiDAR-camera extrinsic exactly.
+# The existing DLIO odom -> base_link -> os_lidar chain provides camera motion.
+zed_mount:
+  mode: calibration # calibration, or manual for an independently verified mounting profile.
+  parent_frame: os_lidar # Must match frames.lidar in the calibration file.
+  child_frame: zed_camera_link # Root of the existing ZED internal TF tree.
+  calibration_file: /home/dcist/data/configs/lidar_camera_calibration.yaml
+  description_package: zed_wrapper
+  description_relative_path: urdf/zed_descr.urdf.xacro
+  camera_name: zed # Must match the running camera description.
+  camera_model: zed2i
+  custom_baseline_m: 0.0 # Used only by ZED virtual-camera models.
+  # Historical approximate chassis measurements; ignored in calibration mode.
+  # To use them deliberately, also set mode: manual and parent_frame: base_link.
+  x_m: 0.25
+  y_m: 0.0
+  z_m: 0.40
+  roll_rad: 0.0
+  pitch_rad: 0.0
+  yaw_rad: 0.0
